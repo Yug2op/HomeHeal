@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Booking } from '../models/Booking.model.js';
 import { BulkBooking } from '../models/BulkBooking.model.js';
 import { User } from '../models/User.model.js';
+import OTP, { generateOTP } from '../models/OTP.model.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
@@ -1075,29 +1076,491 @@ const createBulkBooking = asyncHandler(async (req, res) => {
     }
 });
 
-// 💳 Payments
-// initiatePayment – Begin a booking payment
+// booking feedback
 
-// completePayment – Confirm payment and update booking
+// Submit feedback and rating for a completed booking
+const submitBookingFeedback = asyncHandler(async (req, res) => {
+    const { id: bookingId } = req.params;
+    const { rating, review } = req.body;
+    const userId = req.user._id;
 
-// getBookingPaymentDetails – View payment info linked to a booking
+    // Input validation
+    if (!rating || rating < 1 || rating > 5) {
+        throw new ApiError(400, 'Please provide a valid rating between 1 and 5');
+    }
 
-// 💬 Feedback & Ratings
-// submitBookingFeedback – User submits rating + review
+    // Find the booking
+    const booking = await Booking.findOne({
+        _id: bookingId,
+        user: userId,
+        status: 'completed'
+    });
 
-// getBookingFeedback – Technician or admin views feedback
+    if (!booking) {
+        throw new ApiError(404, 'Booking not found or not eligible for feedback');
+    }
 
-// 🛡️ Verification
-// verifyBookingOtp – Technician submits OTP for verification
+    // Check if feedback already exists
+    if (booking.rating) {
+        throw new ApiError(400, 'Feedback already submitted for this booking');
+    }
 
-// generateBookingOtp – Generate or resend OTP (optional logic)
+    // Update booking with feedback
+    booking.rating = rating;
+    booking.review = review;
+    booking.reviewDate = new Date();
 
-// 🔍 Admin / Manager Utilities
-// getBookingsByRegion – Region-wise booking filtering
+    await booking.save();
 
-// getBookingsByStatus – Status-wise filtering for dashboards
+    // TODO: Calculate and update technician's average rating
+    // This would require aggregating all ratings for bookings assigned to this technician
 
-// getBookingAnalytics – Count by day/week/status etc.
+    return res.status(200).json(
+        new ApiResponse(200, {
+            rating: booking.rating,
+            review: booking.review,
+            reviewDate: booking.reviewDate
+        }, 'Thank you for your feedback!')
+    );
+});
+
+// Get feedback for a specific booking
+const getBookingFeedback = asyncHandler(async (req, res) => {
+    const { id: bookingId } = req.params;
+    const userId = req.user._id;
+    const userRole = req.user.role;
+
+    // Find the booking
+    const booking = await Booking.findById(bookingId)
+        .select('user assigned_technician rating review reviewDate status')
+        .populate('user', 'name email')
+        .populate('assigned_technician', 'name email');
+
+    if (!booking) {
+        throw new ApiError(404, 'Booking not found');
+    }
+
+    // Check permissions
+    const isOwner = booking.user._id.toString() === userId.toString();
+    const isAssignedTechnician = booking.assigned_technician && 
+                               booking.assigned_technician._id.toString() === userId.toString();
+    const isAdminOrManager = ['admin', 'manager'].includes(userRole);
+
+    if (!isOwner && !isAssignedTechnician && !isAdminOrManager) {
+        throw new ApiError(403, 'Not authorized to view this feedback');
+    }
+
+    // Only include feedback if it exists
+    if (!booking.rating) {
+        return res.status(200).json(
+            new ApiResponse(200, { hasFeedback: false }, 'No feedback available for this booking')
+        );
+    }
+
+    const feedback = {
+        bookingId: booking._id,
+        rating: booking.rating,
+        review: booking.review,
+        reviewDate: booking.reviewDate,
+        user: {
+            id: booking.user._id,
+            name: booking.user.name
+        },
+        technician: booking.assigned_technician ? {
+            id: booking.assigned_technician._id,
+            name: booking.assigned_technician.name
+        } : null
+    };
+
+    return res.status(200).json(
+        new ApiResponse(200, { ...feedback, hasFeedback: true }, 'Feedback retrieved successfully')
+    );
+});
+
+// Mark technician as reached
+const markTechnicianReached = asyncHandler(async (req, res) => {
+    const { bookingId } = req.params;
+    const technicianId = req.user._id;
+
+    // Verify if the booking exists and is assigned to the technician
+    const booking = await Booking.findOne({
+        _id: bookingId,
+        assigned_technician: technicianId,
+        status: { $in: ['assigned'] }
+    });
+
+    if (!booking) {
+        throw new ApiError(404, 'Booking not found or not assigned to you');
+    }
+
+    // Update booking status to 'reached'
+    booking.status = 'reached';
+    booking.statusHistory.push({
+        status: 'reached',
+        changedAt: new Date(),
+        changedBy: technicianId,
+        note: 'Technician has reached the location'
+    });
+    await booking.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            bookingId: booking._id,
+            status: booking.status,
+            canGenerateOtp: true
+        }, 'Location reached successfully. You can now generate OTP.')
+    );
+});
+
+// Generate and send OTP for booking verification
+const generateBookingOtp = asyncHandler(async (req, res) => {
+    const { bookingId } = req.params;
+    const technicianId = req.user._id;
+
+    // Verify if the booking exists, is assigned to the technician, and status is 'reached'
+    const booking = await Booking.findOne({
+        _id: bookingId,
+        assigned_technician: technicianId,
+        status: 'reached'
+    });
+
+    if (!booking) {
+        throw new ApiError(400, 'Please mark yourself as reached before generating OTP');
+    }
+
+    // Invalidate any existing OTPs for this booking
+    await OTP.updateMany(
+        { booking: bookingId, technician: technicianId, isUsed: false },
+        { $set: { isUsed: true } }
+    );
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 5); // OTP expires in 5 minutes
+
+    // Save OTP to database
+    const otpRecord = await OTP.create({
+        booking: bookingId,
+        technician: technicianId,
+        otp,
+        expiresAt
+    });
+
+    // In a real application, you would send this OTP to the user's mobile/email
+    // For now, we'll return it in the response (in production, only log it on the server)
+    console.log(`OTP for booking ${bookingId}: ${otp}`);
+
+    // Update booking status to 'otp_pending'
+    booking.status = 'otp_pending';
+    booking.statusHistory.push({
+        status: 'otp_pending',
+        changedAt: new Date(),
+        changedBy: technicianId,
+        note: 'OTP generated and waiting for user verification'
+    });
+    await booking.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            message: 'OTP generated successfully',
+            otpId: otpRecord._id,
+            expiresAt: otpRecord.expiresAt,
+            // In production, don't send OTP in response
+            // This is just for development/testing
+            otp: process.env.NODE_ENV === 'development' ? otp : undefined
+        }, 'OTP has been generated and sent to the user')
+    );
+});
+
+// Verify OTP for booking
+const verifyBookingOtp = asyncHandler(async (req, res) => {
+    const { bookingId } = req.params;
+    const { otp } = req.body;
+    const technicianId = req.user._id;
+
+    // Find the most recent valid OTP
+    const otpRecord = await OTP.findOne({
+        booking: bookingId,
+        technician: technicianId,
+        isUsed: false,
+        expiresAt: { $gt: new Date() },
+        attempts: { $lt: 3 }
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+        throw new ApiError(400, 'No valid OTP found or OTP has expired');
+    }
+
+    // Increment attempt counter
+    otpRecord.attempts += 1;
+    
+    if (otpRecord.otp !== otp) {
+        await otpRecord.save();
+        const remainingAttempts = 3 - otpRecord.attempts;
+        
+        if (remainingAttempts <= 0) {
+            throw new ApiError(400, 'Maximum attempts reached. Please generate a new OTP.');
+        }
+        
+        throw new ApiError(400, `Invalid OTP. ${remainingAttempts} attempts remaining.`);
+    }
+
+    // Mark OTP as used
+    otpRecord.isUsed = true;
+    await otpRecord.save();
+
+    // Verify the booking is in 'otp_pending' status
+    const booking = await Booking.findOne({
+        _id: bookingId,
+        status: 'otp_pending',
+        assigned_technician: technicianId
+    });
+
+    if (!booking) {
+        throw new ApiError(400, 'Invalid OTP verification request');
+    }
+
+    // Update booking status to 'in_progress'
+    booking.status = 'in_progress';
+    booking.statusHistory.push({
+        status: 'in_progress',
+        changedAt: new Date(),
+        changedBy: technicianId,
+        note: 'OTP verified, service in progress'
+    });
+    await booking.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            bookingId: booking._id,
+            status: booking.status,
+            verifiedAt: new Date()
+        }, 'OTP verified successfully')
+    );
+});
+
+// booking analytics
+
+// Get bookings filtered by region (admin/manager only)
+const getBookingsByRegion = asyncHandler(async (req, res) => {
+    const { region, startDate, endDate, page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
+
+    // Build query
+    const query = {};
+    
+    // Filter by region (city/state)
+    if (region) {
+        query['$or'] = [
+            { 'address.city': { $regex: region, $options: 'i' } },
+            { 'address.state': { $regex: region, $options: 'i' } }
+        ];
+    }
+
+    // Filter by date range
+    if (startDate || endDate) {
+        query.createdAt = {};
+        if (startDate) query.createdAt.$gte = new Date(startDate);
+        if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999); // End of the day
+            query.createdAt.$lte = end;
+        }
+    }
+
+    const [bookings, total] = await Promise.all([
+        Booking.find(query)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .populate('user', 'name email phone')
+            .populate('assigned_technician', 'name email phone')
+            .lean(),
+        Booking.countDocuments(query)
+    ]);
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            bookings,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / limit)
+            }
+        }, 'Bookings retrieved successfully')
+    );
+});
+
+// Get bookings filtered by status (admin/manager only)
+const getBookingsByStatus = asyncHandler(async (req, res) => {
+    const { status, startDate, endDate, page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
+
+    // Validate status
+    const validStatuses = ['pending', 'confirmed', 'assigned', 'in_progress', 'completed', 'cancelled', 'rejected'];
+    if (status && !validStatuses.includes(status)) {
+        throw new ApiError(400, 'Invalid status value');
+    }
+
+    // Build query
+    const query = {};
+    if (status) query.status = status;
+
+    // Filter by date range
+    if (startDate || endDate) {
+        query.createdAt = {};
+        if (startDate) query.createdAt.$gte = new Date(startDate);
+        if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            query.createdAt.$lte = end;
+        }
+    }
+
+    const [bookings, total] = await Promise.all([
+        Booking.find(query)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .populate('user', 'name email')
+            .populate('assigned_technician', 'name')
+            .select('bookingId status scheduleDate preferredTimeSlot totalAmount')
+            .lean(),
+        Booking.countDocuments(query)
+    ]);
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            bookings,
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                totalPages: Math.ceil(total / limit)
+            }
+        }, 'Bookings retrieved successfully')
+    );
+});
+
+// Get booking analytics (admin/manager only)
+const getBookingAnalytics = asyncHandler(async (req, res) => {
+    const { timeframe = 'week', startDate, endDate } = req.query;
+    
+    // Validate timeframe
+    const validTimeframes = ['day', 'week', 'month', 'year'];
+    if (!validTimeframes.includes(timeframe)) {
+        throw new ApiError(400, 'Invalid timeframe. Must be one of: day, week, month, year');
+    }
+
+    // Calculate date range
+    const now = new Date();
+    let start, end = now;
+    
+    if (startDate && endDate) {
+        start = new Date(startDate);
+        end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+    } else {
+        // Default to last 30 days if no date range provided
+        start = new Date();
+        start.setDate(now.getDate() - 30);
+    }
+
+    // Group by date and status
+    const analytics = await Booking.aggregate([
+        {
+            $match: {
+                createdAt: { $gte: start, $lte: end }
+            }
+        },
+        {
+            $project: {
+                date: {
+                    $dateToString: {
+                        format: {
+                            day: '%Y-%m-%d',
+                            timezone: 'Asia/Kolkata'
+                        },
+                        date: '$createdAt'
+                    }
+                },
+                status: 1,
+                totalAmount: 1
+            }
+        },
+        {
+            $group: {
+                _id: {
+                    date: '$date',
+                    status: '$status'
+                },
+                count: { $sum: 1 },
+                totalRevenue: { $sum: '$totalAmount' }
+            }
+        },
+        {
+            $group: {
+                _id: '$_id.date',
+                date: { $first: '$_id.date' },
+                statuses: {
+                    $push: {
+                        status: '$_id.status',
+                        count: '$count'
+                    }
+                },
+                totalBookings: { $sum: '$count' },
+                totalRevenue: { $sum: '$totalRevenue' }
+            }
+        },
+        { $sort: { date: 1 } }
+    ]);
+
+    // Get status summary
+    const statusSummary = await Booking.aggregate([
+        {
+            $match: {
+                createdAt: { $gte: start, $lte: end }
+            }
+        },
+        {
+            $group: {
+                _id: '$status',
+                count: { $sum: 1 }
+            }
+        },
+        {
+            $project: {
+                _id: 0,
+                status: '$_id',
+                count: 1
+            }
+        }
+    ]);
+
+    // Calculate totals
+    const totals = {
+        totalBookings: statusSummary.reduce((sum, item) => sum + item.count, 0),
+        totalRevenue: analytics.reduce((sum, item) => sum + (item.totalRevenue || 0), 0),
+        statusSummary: statusSummary.reduce((acc, item) => {
+            acc[item.status] = item.count;
+            return acc;
+        }, {})
+    };
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            timeframe: {
+                start,
+                end,
+                type: timeframe
+            },
+            analytics,
+            ...totals
+        }, 'Analytics retrieved successfully')
+    );
+});
 
 export {
     createBooking,
@@ -1111,10 +1574,16 @@ export {
     assignTechnicianToBooking,
     markBookingCompleted,
     rescheduleBooking,
-    uploadSelfie,
     createBulkBooking,
+    getBookingsByRegion,
+    getBookingsByStatus,
+    getBookingAnalytics,
     uploadSelfie,
     uploadBeforeImage,
     uploadAfterImage,
-    
+    submitBookingFeedback,
+    getBookingFeedback,
+    markTechnicianReached,
+    generateBookingOtp,
+    verifyBookingOtp,
 };

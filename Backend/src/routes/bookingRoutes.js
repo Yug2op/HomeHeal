@@ -14,7 +14,15 @@ import {
     uploadSelfie,
     uploadBeforeImage,
     uploadAfterImage,
-    createBulkBooking
+    createBulkBooking,
+    submitBookingFeedback,
+    getBookingFeedback,
+    getBookingsByRegion,
+    getBookingsByStatus,
+    getBookingAnalytics,
+    markTechnicianReached,
+    generateBookingOtp,
+    verifyBookingOtp
 } from '../controllers/bookingController.js';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
 import { isAdminOrManager } from '../middlewares/role.middleware.js';
@@ -41,9 +49,21 @@ router.route('/my-bookings')
 // 🔹 Admin/Manager Only Routes
 // ============================================
 
+// Admin/Manager analytics and filtered views
+router.route('/analytics')
+    .get(isAdminOrManager, getBookingAnalytics);  // Get booking analytics
+
 // Get all bookings (admin/manager only)
 router.route('/all')
     .get(isAdminOrManager, getAllBookings);
+
+// Get bookings by region (admin/manager only)
+router.route('/region')
+    .get(isAdminOrManager, getBookingsByRegion);
+
+// Get bookings by status (admin/manager only)
+router.route('/status/:status')
+    .get(isAdminOrManager, getBookingsByStatus);
 
 // ============================================
 // 🔹 Booking Management Routes
@@ -72,6 +92,19 @@ router.route('/:id/reschedule')
 router.route('/:id/technician/assign')
     .patch(isAdminOrManager, assignTechnicianToBooking);  // Assign technician to booking
 
+// OTP Verification Routes
+router.route('/:id/otp')
+    .post(generateBookingOtp)           // Generate and send OTP
+    .put(verifyBookingOtp);             // Verify OTP
+
+// Technician location and OTP flow
+router.route('/:id/technician/reached')
+    .post(markTechnicianReached);  // Mark technician as reached
+
+router.route('/:id/otp')
+    .post(generateBookingOtp)      // Generate OTP (after reaching)
+    .put(verifyBookingOtp);        // Verify OTP (user enters OTP)
+
 // Upload selfie when technician reaches location
 router.route('/:id/technician/selfie')
     .post(upload.single('selfie'), uploadSelfie);  // Upload technician selfie
@@ -87,5 +120,10 @@ router.route('/:id/complete')
 
 router.route('/:id/bulk')
     .post(createBulkBooking);                 // Create bulk booking
+
+// Feedback routes
+router.route('/:id/feedback')
+    .post(submitBookingFeedback)              // Submit feedback for a booking
+    .get(getBookingFeedback);                 // Get feedback for a booking
 
 export default router;

@@ -155,6 +155,8 @@ const bookingSchema = new mongoose.Schema({
       'pending',
       'confirmed',
       'assigned',
+      'reached',
+      'otp_pending',
       'in_progress',
       'completed',
       'cancelled',
