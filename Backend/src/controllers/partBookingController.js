@@ -1,6 +1,6 @@
 import asyncHandler from 'express-async-handler';
-import Booking from '../models/Booking.model.js';
-import Part from '../models/Part.model.js';
+import  {Booking}  from '../models/Booking.model.js';
+import  Part  from '../models/Part.model.js';
 
 // @desc    Add parts to a booking
 // @route   POST /api/bookings/:id/parts

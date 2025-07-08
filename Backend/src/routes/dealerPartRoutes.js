@@ -1,6 +1,5 @@
 import express from 'express';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
-import { UserRole } from '../constants.js';
 import {
     createPart,
     getDealerParts,
@@ -17,7 +16,7 @@ router.use(verifyJWT);
 
 // Apply dealer role check to all routes
 router.use((req, res, next) => {
-    if (req.user.role !== UserRole.DEALER) {
+    if (req.user.role !== 'dealer' ) {
         return res.status(403).json({
             success: false,
             message: 'Access denied. Dealers only.'

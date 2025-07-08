@@ -4,7 +4,7 @@ import { BulkBooking } from '../models/BulkBooking.model.js';
 import { User } from '../models/User.model.js';
 import OTP, { generateOTP } from '../models/OTP.model.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { ApiError } from '../utils/ApiError.js';
+import { ApiError } from '../utils/ApiErrors.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { isAdminOrManager } from '../middlewares/role.middleware.js';
 import { uploadOnCloudinary, deleteFromCloudinary } from '../utils/cloudinary.js';

@@ -1,4 +1,4 @@
-import { ApiError } from '../utils/ApiError.js';
+import { ApiError } from '../utils/ApiErrors.js';
 
 /**
  * Middleware to check if user has admin or manager role
@@ -6,6 +6,12 @@ import { ApiError } from '../utils/ApiError.js';
 export const isAdminOrManager = (req, res, next) => {
     if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'manager')) {
         throw new ApiError(403, 'Access denied. Admin or manager privileges required.');
+    }
+    next();
+};
+export const isAdminOrPartner = (req, res, next) => {
+    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'partner')) {
+        throw new ApiError(403, 'Access denied. Admin or partner privileges required.');
     }
     next();
 };

@@ -1,5 +1,6 @@
 import express from 'express';
-import { verifyJWT, isTechnician } from '../middlewares/auth.middleware.js';
+import { verifyJWT } from '../middlewares/auth.middleware.js';
+import { isTechnician } from '../middlewares/role.middleware.js';
 import { addPartsToBooking, removePartFromBooking } from '../controllers/partBookingController.js';
 
 const router = express.Router();
