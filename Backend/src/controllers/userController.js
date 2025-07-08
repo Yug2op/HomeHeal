@@ -47,12 +47,36 @@ const cleanupTempFile = (filePath) => {
 export const registerUser = asyncHandler(async (req, res) => {
     let avatarLocalPath;
     try {
-        const { name, email, phone, password, role = 'user' } = req.body;
+        const { email, phone, password, role = 'user' } = req.body;
 
         // Check if all required fields are provided
-        if (!name || !email || !phone || !password) {
+        if (!email || !phone || !password) {
             throw new ApiError(400, 'All fields are required');
         }
+
+        // Construct name object from form-data
+        const name = {
+            first: req.body['name.first'],
+            last: req.body['name.last'] || ''
+        };
+
+        const latitude = parseFloat(req.body['address.location.coordinates.latitude']);
+        const longitude = parseFloat(req.body['address.location.coordinates.longitude']);
+
+        if (!name.first) throw new ApiError(400, 'First name is required');
+        if (isNaN(latitude) || isNaN(longitude)) {
+            throw new ApiError(400, 'Valid latitude and longitude are required');
+        }
+
+        const address = {
+            location: {
+                coordinates: {
+                    latitude,
+                    longitude
+                }
+            }
+        };
+
 
         // Get uploaded file path
         if (!req.file) {
@@ -75,16 +99,18 @@ export const registerUser = asyncHandler(async (req, res) => {
             throw new ApiError(400, 'Avatar upload failed');
         }
 
-        // Create new user
+        // Create new user with structured data
         const user = await User.create({
             name,
             email,
             phone,
             password,
-            role,
-            registration_status: 'pending',
             avatar: avatar.url,
+            address,
+            ...(role !== 'user' && { role }),
+            registration_status: 'pending'
         });
+
 
         // Create a free subscription for the new user
         const freeSubscription = await Subscription.create({
@@ -215,7 +241,7 @@ export const logoutUser = asyncHandler(async (req, res) => {
             new ApiResponse(
                 200,
                 {},
-                'User logged out successfully'  
+                'User logged out successfully'
             )
         );
 });
@@ -413,7 +439,7 @@ export const updateAddress = asyncHandler(async (req, res) => {
         'address.pincode': pincode,
         'address.state': state,
         'address.country': country,
-        'address.landmark': landmark,   
+        'address.landmark': landmark,
     };
 
     const user = await User.findByIdAndUpdate(
@@ -491,68 +517,39 @@ export const addSavedAddress = asyncHandler(async (req, res) => {
     );
 });
 
-// Get user saved addresses
-export const getUserSavedAddresses = asyncHandler(async (req, res) => {
-    const user = await User.findById(req.user._id).select('-password -refreshToken');
+// Get user addresses
+export const getUserAddresses = asyncHandler(async (req, res) => {
+    const user = await User.findById(req.user._id).select('addresses -_id');
 
     if (!user) {
-        return res.status(404).json(
-            new ApiResponse(
-                404,
-                null,
-                'User not found'
-            )
-        );
+        throw new ApiError(404, 'User not found');
     }
 
-    return res.json(
-        new ApiResponse(
-            200,
-            user.saved_address,
-            'User saved addresses fetched successfully'
-        )
+    return res.status(200).json(
+        new ApiResponse(200, user.addresses, 'User addresses fetched successfully')
     );
 });
 
-// Get user saved address by ID
-export const getUserSavedAddressById = asyncHandler(async (req, res) => {
+// Get user address by ID
+export const getUserAddressById = asyncHandler(async (req, res) => {
     const { addressId } = req.params;
 
-    const user = await User.findById(req.user._id).select('-password -refreshToken');
+    const user = await User.findOne(
+        { _id: req.user._id, 'addresses._id': addressId },
+        { 'addresses.$': 1 }
+    );
 
-    if (!user) {
-        return res.status(404).json(
-            new ApiResponse(
-                404,
-                null,
-                'User not found'
-            )
-        );
+    if (!user || !user.addresses || user.addresses.length === 0) {
+        throw new ApiError(404, 'Address not found');
     }
 
-    const address = user.saved_address.find((address) => address._id.toString() === addressId);
-
-    if (!address) {
-        return res.status(404).json(
-            new ApiResponse(
-                404,
-                null,
-                'Address not found'
-            )
-        );
-    }
-
-    return res.json(
-        new ApiResponse(
-            200,
-            address,
-            'User saved address fetched successfully'
-        )
+    return res.status(200).json(
+        new ApiResponse(200, user.addresses[0], 'Address fetched successfully')
     );
 });
 
-// Remove a saved address
-export const removeSavedAddress = asyncHandler(async (req, res) => {
+// Remove an address
+export const removeAddress = asyncHandler(async (req, res) => {
     const { addressId } = req.params;
 
     if (!addressId) {
@@ -566,7 +563,7 @@ export const removeSavedAddress = asyncHandler(async (req, res) => {
     }
 
     // Find the address to check if it's the default
-    const addressToRemove = user.saved_address.find(
+    const addressToRemove = user.addresses.find(
         addr => addr._id.toString() === addressId
     );
 
@@ -577,28 +574,23 @@ export const removeSavedAddress = asyncHandler(async (req, res) => {
     const wasDefault = addressToRemove.isDefault;
 
     // Remove the address
-    const updatedUser = await User.findByIdAndUpdate(
+    await User.findByIdAndUpdate(
         req.user._id,
-        { $pull: { saved_address: { _id: addressId } } },
-        { new: true }
-    ).select('-password -refreshToken');
+        { $pull: { addresses: { _id: addressId } } }
+    );
 
     // If the removed address was default and there are other addresses, set the first one as default
-    if (wasDefault && updatedUser.saved_address.length > 0) {
-        await User.findByIdAndUpdate(
-            req.user._id,
-            { $set: { 'saved_address.0.isDefault': true } }
-        );
-
-        // Refetch the user to get the updated data
-        const finalUser = await User.findById(req.user._id).select('-password -refreshToken');
-        return res.status(200).json(
-            new ApiResponse(200, finalUser, 'Address removed and new default set successfully')
-        );
+    if (wasDefault) {
+        const updatedUser = await User.findById(req.user._id);
+        if (updatedUser.addresses.length > 0) {
+            updatedUser.addresses[0].isDefault = true;
+            await updatedUser.save();
+        }
     }
 
+    const finalUser = await User.findById(req.user._id).select('addresses -_id');
     return res.status(200).json(
-        new ApiResponse(200, updatedUser, 'Address removed successfully')
+        new ApiResponse(200, finalUser.addresses, 'Address removed successfully')
     );
 });
 
@@ -710,12 +702,12 @@ export const updateSubscription = asyncHandler(async (req, res) => {
             currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
             cancelAtPeriodEnd: false
         };
-        
+
         // First update the document to trigger pre-save hooks
         const sub = await Subscription.findById(user.subscription);
         Object.assign(sub, updateData);
         await sub.save();
-        
+
         // Then get the updated document
         subscription = await Subscription.findById(user.subscription);
     } else {

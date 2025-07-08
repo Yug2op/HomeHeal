@@ -75,8 +75,50 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  registration_status: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  subscription: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Subscription'
+  },
+  addresses: [{
+    _id: false,
+    type: {
+      type: String,
+      enum: ['home', 'work', 'other'],
+      required: true
+    },
+    addressLine1: {
+      type: String,
+      required: true
+    },
+    addressLine2: String,
+    city: {
+      type: String,
+      required: true
+    },
+    state: {
+      type: String,
+      required: true
+    },
+    pincode: {
+      type: String,
+      required: true
+    },
+    country: {
+      type: String,
+      default: 'India'
+    },
+    isDefault: {
+      type: Boolean,
+      default: false
+    }
+  }],
   
-  // Location
+  // Location (for geospatial queries)
   location: {
     type: {
       type: String,
@@ -84,13 +126,29 @@ const userSchema = new mongoose.Schema({
       default: 'Point'
     },
     coordinates: {
-      type: [Number] // [longitude, latitude]
+      type: [Number], // [longitude, latitude]
+      default: [0, 0]
     },
-    address: String,
-    city: String,
-    state: String,
-    pincode: String,
-    country: String
+    address: {
+      type: String,
+      default: ''
+    },
+    city: {
+      type: String,
+      default: ''
+    },
+    state: {
+      type: String,
+      default: ''
+    },
+    pincode: {
+      type: String,
+      default: ''
+    },
+    country: {
+      type: String,
+      default: 'India'
+    }
   },
   
   // Preferences

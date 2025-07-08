@@ -11,9 +11,7 @@ import {
     changeUserPassword,
     updateAddress,
     addSavedAddress,
-    getUserSavedAddresses,
-    getUserSavedAddressById,
-    removeSavedAddress,
+    getUserAddressById,
     uploadAvatar,
     getSubscriptionDetails,
     updateSubscription,
@@ -44,9 +42,7 @@ router.patch('/profile', updateUserProfile);
 router.patch('/change-password', changeUserPassword);
 router.patch('/update-address', updateAddress);
 router.post('/saved-addresses', addSavedAddress);
-router.get('/saved-addresses', getUserSavedAddresses);
-router.get('/saved-addresses/:addressId', getUserSavedAddressById);
-router.delete('/saved-addresses/:addressId', removeSavedAddress);
+router.get('/addresses/:addressId', getUserAddressById);
 router.patch('/update-avatar', upload.single('avatar'), uploadAvatar);
 
 // Subscription management routes
