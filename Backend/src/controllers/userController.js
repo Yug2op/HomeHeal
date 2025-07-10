@@ -3,7 +3,7 @@ import { Subscription } from '../models/Subscription.model.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { ApiError } from '../utils/ApiErrors.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import fs from 'fs';
+import { cleanupTempFile } from '../utils/CleanupFile.js';
 import { uploadOnCloudinary } from '../utils/cloudinary.js';
 // Generate tokens
 const generateTokens = async (user) => {
@@ -30,24 +30,13 @@ const setRefreshTokenCookie = (res, token) => {
     });
 };
 
-// Cleanup temp file
-const cleanupTempFile = (filePath) => {
-    if (filePath && fs.existsSync(filePath)) {
-        try {
-            fs.unlinkSync(filePath);
-        } catch (error) {
-            console.error('Error cleaning up temp file:', error);
-        }
-    }
-};
-
 // Authentication & Session
 
 // Register a new user
 export const registerUser = asyncHandler(async (req, res) => {
     let avatarLocalPath;
     try {
-        const { email, phone, password, role = 'user' } = req.body;
+        const { email, phone, password, role } = req.body;
 
         // Check if all required fields are provided
         if (!email || !phone || !password) {
@@ -76,7 +65,6 @@ export const registerUser = asyncHandler(async (req, res) => {
 
         // Create default addresses with location
         const defaultAddress = {
-            type: 'home',
             addressLine1: req.body['addresses.addressLine1'] || 'Not provided',
             city: req.body['addresses.city'] || 'Not provided',
             state: req.body['addresses.state'] || 'Not provided',
@@ -105,6 +93,7 @@ export const registerUser = asyncHandler(async (req, res) => {
         });
 
         if (existingUser) {
+            cleanupTempFile(avatarLocalPath)
             throw new ApiError(409, 'User with email or phone already exists');
         }
 
@@ -153,6 +142,7 @@ export const registerUser = asyncHandler(async (req, res) => {
             .populate('subscription');
 
         if (!createdUser) {
+            cleanupTempFile(avatarLocalPath)
             throw new ApiError(400, 'User creation Failed');
         }
 
@@ -208,7 +198,6 @@ export const loginUser = asyncHandler(async (req, res) => {
 
     res.cookie('accessToken', accessToken, cookieOptions);
     res.cookie('refreshToken', refreshToken, cookieOptions);
-    user.last_login = new Date();
     await user.save({ validateBeforeSave: false });
 
     const loggedInUser = await User.findById(user._id).select('-password -refreshToken');
