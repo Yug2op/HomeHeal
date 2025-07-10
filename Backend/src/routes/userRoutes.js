@@ -9,14 +9,15 @@ import {
     refreshAccessToken,
     updateUserProfile,
     changeUserPassword,
-    updateAddress,
-    addSavedAddress,
+    addAddress,
+    getUserAddress,
+    removeAddress,
     getUserAddressById,
+    updateAddress,
     uploadAvatar,
     getSubscriptionDetails,
     updateSubscription,
     cancelSubscription
-
 } from '../controllers/userController.js';
 import { upload } from '../utils/multer.js';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
@@ -40,9 +41,15 @@ router.post('/logout', logoutUser);
 // Profile management routes
 router.patch('/profile', updateUserProfile);
 router.patch('/change-password', changeUserPassword);
-router.patch('/update-address', updateAddress);
-router.post('/saved-addresses', addSavedAddress);
+
+// Address management routes
+router.post('/addresses', addAddress);
+router.get('/addresses', getUserAddress);
 router.get('/addresses/:addressId', getUserAddressById);
+router.patch('/addresses/:addressId', updateAddress);
+router.delete('/addresses/:addressId', removeAddress);
+
+// Avatar management
 router.patch('/update-avatar', upload.single('avatar'), uploadAvatar);
 
 // Subscription management routes

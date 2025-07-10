@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema({
       maxlength: 50
     }
   },
-  
+
   // Contact Information
   email: {
     type: String,
@@ -26,7 +26,7 @@ const userSchema = new mongoose.Schema({
     unique: true,
     lowercase: true,
     trim: true,
-    match: [/.+@.+\..+/, 'Please enter a valid email address'],
+    match: [/.+@.+\..+/, 'Please enter a valid email addresses'],
   },
   phone: {
     type: String,
@@ -34,7 +34,7 @@ const userSchema = new mongoose.Schema({
     unique: true,
     match: [/^\d{10}$/, 'Phone number must be 10 digits'],
   },
-  
+
   // Authentication
   password: {
     type: String,
@@ -46,14 +46,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     select: false,
   },
-  
+
   // Profile
   avatar: {
     type: String,
     required: [true, 'Avatar is required'],
-    
+
   },
-  
+
   // Role and Permissions
   role: {
     type: String,
@@ -61,13 +61,13 @@ const userSchema = new mongoose.Schema({
     default: 'user',
     required: true,
   },
-  
+
   // Status
   isActive: {
     type: Boolean,
     default: true
   },
-  lastLogin: {
+  last_Login: {
     type: Date,
     default: Date.now
   },
@@ -85,72 +85,27 @@ const userSchema = new mongoose.Schema({
     ref: 'Subscription'
   },
   addresses: [{
-    _id: false,
-    type: {
-      type: String,
-      enum: ['home', 'work', 'other'],
-      required: true
+    addressLine1: { type: String, required: true },
+    addressLine2: { type: String },
+    landmark: { type: String },
+    city: { type: String, required: true },
+    state: { type: String, required: true },
+    pincode: { type: String, required: true },
+    country: { type: String, default: 'India' },
+    isDefault: { type: Boolean, default: false },
+    location: {
+      coordinates: {
+        longitude: { type: Number },
+        latitude: { type: Number }
+      }
     },
-    addressLine1: {
+    tag: {
       type: String,
-      required: true
-    },
-    addressLine2: String,
-    city: {
-      type: String,
-      required: true
-    },
-    state: {
-      type: String,
-      required: true
-    },
-    pincode: {
-      type: String,
-      required: true
-    },
-    country: {
-      type: String,
-      default: 'India'
-    },
-    isDefault: {
-      type: Boolean,
-      default: false
+      enum: ['home', 'work', 'other', 'relative', 'temporary'],
+      default: 'home'
     }
   }],
-  
-  // Location (for geospatial queries)
-  location: {
-    type: {
-      type: String,
-      enum: ['Point'],
-      default: 'Point'
-    },
-    coordinates: {
-      type: [Number], // [longitude, latitude]
-      default: [0, 0]
-    },
-    address: {
-      type: String,
-      default: ''
-    },
-    city: {
-      type: String,
-      default: ''
-    },
-    state: {
-      type: String,
-      default: ''
-    },
-    pincode: {
-      type: String,
-      default: ''
-    },
-    country: {
-      type: String,
-      default: 'India'
-    }
-  },
-  
+
   // Preferences
   preferences: {
     notifications: {
@@ -163,82 +118,9 @@ const userSchema = new mongoose.Schema({
       default: 'en'
     }
   },
-  
-  // Subscription
-  subscription: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Subscription',
-    default: null
-  },
-  
   // System
   fcmToken: String,
 
-  address: {
-    street: {
-      type: String,
-      trim: true,
-      default: ''
-    },
-    city: {
-      type: String,
-      trim: true,
-      default: ''
-    },
-    state: {
-      type: String,
-      trim: true,
-      default: ''
-    },
-    country: {
-      type: String,
-      trim: true,
-      default: ''
-    },
-    pincode: {
-      type: String,
-      trim: true,
-      default: ''
-    },
-    landmark: String,
-    tag: {
-      type: String,
-      enum: ['home', 'work', 'other', 'relative', 'temporary'],
-      default: 'home'
-    },
-    location: {
-      coordinates: {
-        longitude: {
-          type: Number,
-          required: true
-        },
-        latitude: {
-          type: Number,
-          required: true
-        }
-      }
-    }
-  },
-  last_login: {
-    type: Date,
-    default: null,
-  },
-  saved_address: [
-    {
-      street: String,
-      city: String,
-      state: String,
-      country: String,
-      pincode: String,
-      landmark: String,
-      tag: {
-        type: String,
-        enum: ['home', 'work', 'other', 'relative', 'temporary'],
-        default: 'home'
-      },
-      isDefault: { type: Boolean, default: false },
-    }
-  ],
   registration_status: {
     type: String,
     enum: ['pending', 'approved', 'rejected', 'in_review'],
@@ -253,8 +135,14 @@ const userSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
+userSchema.set('toJSON', {
+  virtuals: false, // or true if you need computed fields like fullName
+  versionKey: false // removes __v
+});
+
+
 // Add virtual for fullName
-userSchema.virtual('fullName').get(function() {
+userSchema.virtual('fullName').get(function () {
   return `${this.name.first} ${this.name.last}`.trim();
 });
 

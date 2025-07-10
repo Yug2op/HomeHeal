@@ -60,21 +60,36 @@ export const registerUser = asyncHandler(async (req, res) => {
             last: req.body['name.last'] || ''
         };
 
-        const latitude = parseFloat(req.body['address.location.coordinates.latitude']);
-        const longitude = parseFloat(req.body['address.location.coordinates.longitude']);
-
-        if (!name.first) throw new ApiError(400, 'First name is required');
-        if (isNaN(latitude) || isNaN(longitude)) {
-            throw new ApiError(400, 'Valid latitude and longitude are required');
+        let latitude, longitude;
+        if (
+            req.body['addresses.location.coordinates.latitude'] !== undefined &&
+            req.body['addresses.location.coordinates.longitude'] !== undefined
+        ) {
+            latitude = parseFloat(req.body['addresses.location.coordinates.latitude']);
+            longitude = parseFloat(req.body['addresses.location.coordinates.longitude']);
+            if (isNaN(latitude) || isNaN(longitude)) {
+            throw new ApiError(400, 'If provided, latitude and longitude must be valid numbers');
+            }
         }
 
-        const address = {
+        if (!name.first) throw new ApiError(400, 'First name is required');
+
+        // Create default addresses with location
+        const defaultAddress = {
+            type: 'home',
+            addressLine1: req.body['addresses.addressLine1'] || 'Not provided',
+            city: req.body['addresses.city'] || 'Not provided',
+            state: req.body['addresses.state'] || 'Not provided',
+            pincode: req.body['addresses.pincode'] || '000000',
+            country: req.body['addresses.country'] || 'India',
+            isDefault: true,
             location: {
                 coordinates: {
-                    latitude,
-                    longitude
+                    longitude: longitude,
+                    latitude: latitude
                 }
-            }
+            },
+            tag: 'home'
         };
 
 
@@ -106,7 +121,7 @@ export const registerUser = asyncHandler(async (req, res) => {
             phone,
             password,
             avatar: avatar.url,
-            address,
+            addresses: [defaultAddress],
             ...(role !== 'user' && { role }),
             registration_status: 'pending'
         });
@@ -162,8 +177,6 @@ export const registerUser = asyncHandler(async (req, res) => {
         throw error;
     }
 });
-
-
 
 // Login user
 export const loginUser = asyncHandler(async (req, res) => {
@@ -371,10 +384,18 @@ export const getAllUsers = asyncHandler(async (req, res) => {
 
 // Update user profile
 export const updateUserProfile = asyncHandler(async (req, res) => {
-    const { name, phone } = req.body;
+    const { phone } = req.body;
 
     const updateData = {};
-    if (name) updateData.name = name;
+
+    if (req.body['name.first']) {
+        updateData['name.first'] = req.body['name.first'];
+    }
+
+    if (req.body['name.last']) {
+        updateData['name.last'] = req.body['name.last'];
+    }
+
     if (phone) updateData.phone = phone;
 
     const user = await User.findByIdAndUpdate(
@@ -419,52 +440,87 @@ export const changeUserPassword = asyncHandler(async (req, res) => {
     );
 });
 
-// Update user's main address
+// Update an existing address
 export const updateAddress = asyncHandler(async (req, res) => {
-    const { street, city, pincode, state, country, landmark } = req.body;
+    const { addressId } = req.params;
+    const { 
+        addressLine1, 
+        addressLine2, 
+        city, 
+        state, 
+        pincode, 
+        country, 
+        landmark, 
+        tag, 
+        isDefault 
+    } = req.body;
 
-    if (!street || !city || !pincode || !state || !country) {
-        throw new ApiError(400, 'All fields are required');
+    if (!addressId) {
+        throw new ApiError(400, 'Address ID is required');
     }
 
-    // Validate pincode format (6 digits)
-    const pincodeRegex = /^\d{6}$/;
-    if (!pincodeRegex.test(pincode)) {
-        throw new ApiError(400, 'PIN code must be 6 digits');
-    }
-
-    const updateData = {
-        'address.street': street,
-        'address.city': city,
-        'address.pincode': pincode,
-        'address.state': state,
-        'address.country': country,
-        'address.landmark': landmark,
-    };
-
-    const user = await User.findByIdAndUpdate(
-        req.user._id,
-        { $set: updateData },
-        { new: true }
-    ).select('-password -refreshToken');
-
+    // Find the user and the address to update
+    const user = await User.findById(req.user._id);
     if (!user) {
         throw new ApiError(404, 'User not found');
     }
-    console.log(user);
 
-    return res.status(200).json(
-        new ApiResponse(200, user, 'Address updated successfully')
+    const addressIndex = user.addresses.findIndex(
+        addr => addr._id.toString() === addressId
     );
 
+    if (addressIndex === -1) {
+        throw new ApiError(404, 'Address not found');
+    }
+
+    // If setting as default, update all other addresses to not be default
+    if (isDefault === true) {
+        user.addresses = user.addresses.map(addr => ({
+            ...addr.toObject(),
+            isDefault: false
+        }));
+    }
+
+    // Update the address fields
+    const updatedAddress = {
+        ...user.addresses[addressIndex].toObject(),
+        addressLine1: addressLine1 || user.addresses[addressIndex].addressLine1,
+        addressLine2: addressLine2 !== undefined ? addressLine2 : user.addresses[addressIndex].addressLine2,
+        city: city || user.addresses[addressIndex].city,
+        state: state || user.addresses[addressIndex].state,
+        pincode: pincode || user.addresses[addressIndex].pincode,
+        country: country || user.addresses[addressIndex].country,
+        landmark: landmark !== undefined ? landmark : user.addresses[addressIndex].landmark,
+        tag: tag || user.addresses[addressIndex].tag,
+        isDefault: isDefault !== undefined ? isDefault : user.addresses[addressIndex].isDefault,
+        updatedAt: new Date()
+    };
+
+    user.addresses[addressIndex] = updatedAddress;
+    await user.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, updatedAddress, 'Address updated successfully')
+    );
 });
 
-// Add a new saved address
-export const addSavedAddress = asyncHandler(async (req, res) => {
-    const { street, city, pincode, state, country, landmark, isDefault, tag } = req.body;
+// Add a new addresses
+export const addAddress = asyncHandler(async (req, res) => {
+    const {
+        addressLine1,
+        addressLine2 = '',
+        city,
+        state,
+        pincode,
+        country = 'India',
+        landmark = '',
+        tag = 'home',
+        isDefault = false
+    } = req.body;
 
-    if (!street || !city || !pincode || !state || !country || !tag) {
-        throw new ApiError(400, 'All fields are required');
+    // Check for required fields
+    if (!addressLine1 || !city || !state || !pincode) {
+        throw new ApiError(400, 'Required addresses fields are missing: addressLine1, city, state, and pincode are required');
     }
 
     // Validate pincode format (6 digits)
@@ -474,72 +530,73 @@ export const addSavedAddress = asyncHandler(async (req, res) => {
     }
 
     const newAddress = {
-        street,
-        city,
-        pincode,
-        state,
-        country,
-        landmark,
+        addressLine1: addressLine1.trim(),
+        addressLine2: addressLine2 ? addressLine2.trim() : '',
+        city: city.trim(),
+        state: state.trim(),
+        pincode: pincode.trim(),
+        country: country.trim(),
+        landmark: landmark ? landmark.trim() : '',
+        tag,
         isDefault,
-        ...(tag && { tag })
+        location: req.body.location || { coordinates: {} }
     };
 
-    let update;
-
-    if (isDefault) {
-        // If setting as default, unset default from other addresses and add new default
-        update = {
-            $push: { 'saved_address': newAddress },
-            $set: { 'saved_address.$[elem].isDefault': false }
-        };
-    } else {
-        // Just add the new address as non-default
-        update = { $push: { saved_address: newAddress } };
-    }
-
-    const options = {
-        new: true,
-        arrayFilters: isDefault ? [{ 'elem.isDefault': true }] : undefined
-    };
-
-    const user = await User.findByIdAndUpdate(
-        req.user._id,
-        update,
-        options
-    ).select('-password -refreshToken');
-
+    const user = await User.findById(req.user._id);
     if (!user) {
         throw new ApiError(404, 'User not found');
     }
 
+    // If setting as default, update all other addresses to not be default
+    if (isDefault) {
+        user.addresses = user.addresses.map(addr => ({
+            ...addr.toObject(),
+            isDefault: false
+        }));
+    }
+
+    // Add the new addresses
+    user.addresses.push(newAddress);
+    await user.save();
+
     return res.status(200).json(
-        new ApiResponse(200, user, 'Address added successfully')
+        new ApiResponse(200, user.addresses, 'Address added successfully')
     );
 });
 
 // Get user addresses
-export const getUserAddresses = asyncHandler(async (req, res) => {
+export const getUserAddress = asyncHandler(async (req, res) => {
     const user = await User.findById(req.user._id).select('addresses -_id');
 
     if (!user) {
         throw new ApiError(404, 'User not found');
     }
 
+    // If no addresses exist, return empty array instead of undefined
+    const addresses = user.addresses || [];
+
     return res.status(200).json(
-        new ApiResponse(200, user.addresses, 'User addresses fetched successfully')
+        new ApiResponse(200, addresses, 'User addresses fetched successfully')
     );
 });
 
-// Get user address by ID
+// Get user addresses by ID
 export const getUserAddressById = asyncHandler(async (req, res) => {
     const { addressId } = req.params;
+
+    if (!addressId) {
+        throw new ApiError(400, 'Address ID is required');
+    }
 
     const user = await User.findOne(
         { _id: req.user._id, 'addresses._id': addressId },
         { 'addresses.$': 1 }
     );
 
-    if (!user || !user.addresses || user.addresses.length === 0) {
+    if (!user) {
+        throw new ApiError(404, 'User not found');
+    }
+    if (!user.addresses || user.addresses.length === 0) {
         throw new ApiError(404, 'Address not found');
     }
 
@@ -548,7 +605,7 @@ export const getUserAddressById = asyncHandler(async (req, res) => {
     );
 });
 
-// Remove an address
+// Remove an addresses
 export const removeAddress = asyncHandler(async (req, res) => {
     const { addressId } = req.params;
 
@@ -556,41 +613,34 @@ export const removeAddress = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Address ID is required');
     }
 
-    // First, find the user and the address to be removed
     const user = await User.findById(req.user._id);
     if (!user) {
         throw new ApiError(404, 'User not found');
     }
 
-    // Find the address to check if it's the default
-    const addressToRemove = user.addresses.find(
+    // Find the addresses to check if it's the default
+    const addressIndex = user.addresses.findIndex(
         addr => addr._id.toString() === addressId
     );
 
-    if (!addressToRemove) {
+    if (addressIndex === -1) {
         throw new ApiError(404, 'Address not found');
     }
 
-    const wasDefault = addressToRemove.isDefault;
+    const wasDefault = user.addresses[addressIndex].isDefault;
 
-    // Remove the address
-    await User.findByIdAndUpdate(
-        req.user._id,
-        { $pull: { addresses: { _id: addressId } } }
-    );
+    // Remove the addresses
+    user.addresses.splice(addressIndex, 1);
 
-    // If the removed address was default and there are other addresses, set the first one as default
-    if (wasDefault) {
-        const updatedUser = await User.findById(req.user._id);
-        if (updatedUser.addresses.length > 0) {
-            updatedUser.addresses[0].isDefault = true;
-            await updatedUser.save();
-        }
+    // If the removed addresses was default and there are other addresses, set the first one as default
+    if (wasDefault && user.addresses.length > 0) {
+        user.addresses[0].isDefault = true;
     }
 
-    const finalUser = await User.findById(req.user._id).select('addresses -_id');
+    await user.save();
+
     return res.status(200).json(
-        new ApiResponse(200, finalUser.addresses, 'Address removed successfully')
+        new ApiResponse(200, user.addresses, 'Address removed successfully')
     );
 });
 
