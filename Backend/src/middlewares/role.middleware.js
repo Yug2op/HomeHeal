@@ -4,14 +4,14 @@ import { ApiError } from '../utils/ApiErrors.js';
  * Middleware to check if user has admin or manager role
  */
 export const isAdminOrManager = (req, res, next) => {
-    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'manager')) {
-        throw new ApiError(403, 'Access denied. Admin or manager privileges required.');
+    if (!req.user || (req.user.role !== 'Admin' && req.user.role !== 'Manager')) {
+        throw new ApiError(403, 'Access denied. Admin or Manager privileges required.');
     }
     next();
 };
 export const isAdminOrPartner = (req, res, next) => {
-    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'partner')) {
-        throw new ApiError(403, 'Access denied. Admin or partner privileges required.');
+    if (!req.user || (req.user.role !== 'Admin' && req.user.role !== 'Partner')) {
+        throw new ApiError(403, 'Access denied. Admin or Partner privileges required.');
     }
     next();
 };
@@ -20,7 +20,7 @@ export const isAdminOrPartner = (req, res, next) => {
  * Middleware to check if user has technician role
  */
 export const isTechnician = (req, res, next) => {
-    if (!req.user || req.user.role !== 'technician') {
+    if (!req.user || req.user.role !== 'Technician') {
         throw new ApiError(403, 'Access denied. Technician privileges required.');
     }
     next();
@@ -32,8 +32,13 @@ export const isTechnician = (req, res, next) => {
  */
 export const hasRole = (...roles) => {
     return (req, res, next) => {
-        if (!req.user || !roles.includes(req.user.role)) {
-            throw new ApiError(403, `Access denied. Required roles: ${roles.join(', ')}`);
+        // Convert all role names to proper case for comparison
+        const properCaseRoles = roles.map(role => 
+            role.charAt(0).toUpperCase() + role.slice(1).toLowerCase()
+        );
+        
+        if (!req.user || !properCaseRoles.includes(req.user.role)) {
+            throw new ApiError(403, `Access denied. Required role(s): ${properCaseRoles.join(', ')}`);
         }
         next();
     };
@@ -48,7 +53,7 @@ export const isOwnerOrAdmin = (modelName, idParam = 'id') => {
     return async (req, res, next) => {
         try {
             // Allow admins and managers to bypass ownership check
-            if (req.user.role === 'admin' || req.user.role === 'manager') {
+            if (req.user.role === 'Admin' || req.user.role === 'Manager') {
                 return next();
             }
 

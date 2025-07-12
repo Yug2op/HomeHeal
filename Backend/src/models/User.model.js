@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import mongoosePaginate from 'mongoose-paginate-v2';
 
 const userSchema = new mongoose.Schema({
   // Basic Information
@@ -186,5 +187,8 @@ userSchema.methods.generateRefreshToken = function () {
 };
 
 
+
+// Add pagination plugin to user schema
+userSchema.plugin(mongoosePaginate);
 
 export const User = mongoose.model('User', userSchema);
