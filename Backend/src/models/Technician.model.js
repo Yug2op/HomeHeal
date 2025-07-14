@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import mongoosePaginate from 'mongoose-paginate-v2';
 import { User } from './User.model.js';
 
 // Define the technician-specific schema that extends the base User schema
@@ -13,7 +14,7 @@ const technicianSchema = new mongoose.Schema({
         enum: ['male', 'female', 'other', 'prefer-not-to-say'],
         required: [true, 'Gender is required']
     },
-    
+
     // Emergency Contact
     emergencyContact: {
         name: {
@@ -30,11 +31,11 @@ const technicianSchema = new mongoose.Schema({
             match: [/^\d{10}$/, 'Phone number must be 10 digits']
         }
     },
-    
+
     // Professional Information
     services: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Service',
+        type: String,
+        trim: true,
         required: [true, 'At least one service is required']
     }],
     skills: [{
@@ -51,47 +52,47 @@ const technicianSchema = new mongoose.Schema({
         maxlength: [500, 'Bio cannot be longer than 500 characters'],
         trim: true
     },
-    
+
     // Service Areas
     serviceAreas: [{
         type: String, // Could be pincodes or area names
         trim: true
     }],
-    
+
     // Availability
     availability: {
         workingHours: {
-            monday: { 
+            monday: {
                 start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 available: { type: Boolean, default: false }
             },
-            tuesday: { 
+            tuesday: {
                 start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 available: { type: Boolean, default: false }
             },
-            wednesday: { 
+            wednesday: {
                 start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 available: { type: Boolean, default: false }
             },
-            thursday: { 
+            thursday: {
                 start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 available: { type: Boolean, default: false }
             },
-            friday: { 
+            friday: {
                 start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 available: { type: Boolean, default: false }
             },
-            saturday: { 
+            saturday: {
                 start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 available: { type: Boolean, default: false }
             },
-            sunday: { 
+            sunday: {
                 start: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 end: { type: String, match: /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/ },
                 available: { type: Boolean, default: false }
@@ -104,7 +105,7 @@ const technicianSchema = new mongoose.Schema({
         breakStart: Date,
         breakEnd: Date
     },
-    
+
     // Work Preferences
     maxWorkload: {
         type: Number,
@@ -112,7 +113,7 @@ const technicianSchema = new mongoose.Schema({
         min: [1, 'Max workload must be at least 1'],
         max: [10, 'Max workload cannot exceed 10']
     },
-    
+
     // Performance Metrics
     totalJobsCompleted: {
         type: Number,
@@ -129,7 +130,7 @@ const technicianSchema = new mongoose.Schema({
         type: Number, // in minutes
         min: 0
     },
-    
+
     // Verification & Documents
     isVerified: {
         type: Boolean,
@@ -159,7 +160,7 @@ const technicianSchema = new mongoose.Schema({
         },
         metadata: mongoose.Schema.Types.Mixed // For any additional document info
     }],
-    
+
     // Financial Information
     bankDetails: {
         accountHolderName: {
@@ -184,18 +185,20 @@ const technicianSchema = new mongoose.Schema({
             type: String,
             trim: true
         },
-        isVerified: {
-            type: Boolean,
-            default: false
-        }
     },
-    
+
     // System Fields
     status: {
         type: String,
         enum: ['pending_verification', 'active', 'on_leave', 'suspended', 'inactive'],
         default: 'pending_verification'
     },
+    
+    // Reference to bookings assigned to this technician
+    assignedBookings: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Booking'
+    }],
     joinedAt: {
         type: Date,
         default: Date.now
@@ -233,20 +236,20 @@ technicianSchema.index({ 'location.coordinates': '2dsphere' });
 /**
  * Update technician's location
  * @param {Object} coordinates - Object with lng and lat properties
- * @param {string} [address] - Optional address string
+ * @param {string} [addresses] - Optional addresses string
  * @returns {Promise<Technician>} The updated technician document
  */
-technicianSchema.methods.updateLocation = async function(coordinates, address) {
+technicianSchema.methods.updateLocation = async function (coordinates, addresses) {
     if (!coordinates || !coordinates.lng || !coordinates.lat) {
         throw new Error('Invalid coordinates provided');
     }
-    
+
     this.location = {
         type: 'Point',
         coordinates: [coordinates.lng, coordinates.lat],
-        address: address || this.location?.address
+        addresses: addresses || this.location?.addresses
     };
-    
+
     return this.save();
 };
 
@@ -255,50 +258,10 @@ technicianSchema.methods.updateLocation = async function(coordinates, address) {
  * @param {string} status - New status ('available', 'busy', 'offline')
  * @returns {Promise<Technician>} The updated technician document
  */
-technicianSchema.methods.updateAvailability = async function(status) {
-    const validStatuses = ['available', 'busy', 'offline'];
-    if (!validStatuses.includes(status)) {
-        throw new Error(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);
-    }
-    
-    this.availability = this.availability || {};
-    this.availability.status = status;
-    this.isOnline = status !== 'offline';
-    
-    if (status === 'offline') {
-        this.lastActive = new Date();
-    }
-    
-    return this.save();
-};
 
-/**
- * Check if technician is currently available
- * @returns {boolean} True if available, false otherwise
- */
-technicianSchema.methods.isAvailable = function() {
-    if (this.status !== 'active' || !this.isOnline) {
-        return false;
-    }
-    
-    // Check if currently in working hours
-    const now = new Date();
-    const day = now.toLocaleString('en-US', { weekday: 'lowercase' });
-    const workingHours = this.availability?.workingHours?.[day];
-    
-    if (!workingHours?.available) {
-        return false;
-    }
-    
-    const currentTime = now.getHours() * 100 + now.getMinutes();
-    const [startHour, startMinute] = workingHours.start.split(':').map(Number);
-    const [endHour, endMinute] = workingHours.end.split(':').map(Number);
-    
-    const startTime = startHour * 100 + startMinute;
-    const endTime = endHour * 100 + endMinute;
-    
-    return currentTime >= startTime && currentTime <= endTime;
-};
+
+// Add pagination plugin to the schema
+technicianSchema.plugin(mongoosePaginate);
 
 // Create and export the model
 const Technician = User.discriminator('Technician', technicianSchema);

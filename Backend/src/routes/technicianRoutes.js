@@ -9,6 +9,7 @@ import {
     updateTechnicianAvailability,
     getAllTechnicians,
     getTechnicianById,
+    deactivateTechnicianById,
     deleteTechnicianById,
     getAssignedBookings,
     getBookingDetails,
@@ -24,21 +25,20 @@ import {
 
 const router = Router();
 
-// Secure all routes with JWT authentication
-router.use(verifyJWT);
-
-// Register a new technician (Admin/Partner only)
-router.route('/')
+// Public routes
+router.route('/register')
     .post(
-        isAdminOrPartner,
         upload.fields([
-            { name: 'profilePicture', maxCount: 1 },
+            { name: 'avatar', maxCount: 1 },
             { name: 'idProof', maxCount: 1 },
             { name: 'addressProof', maxCount: 1 },
             { name: 'certificates', maxCount: 5 }
         ]),
         registerTechnician
     );
+
+// Apply JWT authentication to all routes below this point
+router.use(verifyJWT);
 
 // Get all technicians (Admin/Manager only)
 router.route('/')
@@ -49,7 +49,7 @@ router.route('/profile')
     .get(getTechnicianProfile)
     .patch(
         upload.fields([
-            { name: 'profilePicture', maxCount: 1 },
+            { name: 'avatar', maxCount: 1 },
             { name: 'documents', maxCount: 5 }
         ]),
         updateTechnicianProfile
@@ -62,6 +62,7 @@ router.route('/availability')
 // Get, delete specific technician (Admin/Partner only)
 router.route('/:id')
     .get(isAdminOrPartner, getTechnicianById)
+    .patch(isAdminOrPartner, deactivateTechnicianById)
     .delete(isAdminOrPartner, deleteTechnicianById);
 
 // Job Management Routes
