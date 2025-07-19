@@ -225,7 +225,7 @@ const technicianSchema = new mongoose.Schema({
     }]
 }, {
     timestamps: true,
-    discriminatorKey: 'role',
+    // Remove discriminatorKey as it's already defined in the parent User model
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
 });
