@@ -76,11 +76,6 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  registration_status: {
-    type: String,
-    enum: ['pending', 'approved', 'rejected'],
-    default: 'pending'
-  },
   subscription: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Subscription'

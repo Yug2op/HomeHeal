@@ -348,13 +348,47 @@ export const getUserById = asyncHandler(async (req, res) => {
 
 //get all user
 export const getAllUsers = asyncHandler(async (req, res) => {
-    const users = await User.find().select('-password -refreshToken');
-
-    if (!users) {
+    const { page = 1, limit = 10, role, search } = req.query;
+    
+    // Build query
+    const query = {};
+    
+    // Filter by role if provided
+    if (role) {
+        query.role = role;
+    }
+    
+    // Search functionality
+    if (search) {
+        query.$or = [
+            { 'name.first': { $regex: search, $options: 'i' } },
+            { 'name.last': { $regex: search, $options: 'i' } },
+            { email: { $regex: search, $options: 'i' } },
+            { phone: { $regex: search, $options: 'i' } }
+        ];
+    }
+    
+    // Options for pagination
+    const options = {
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
+        sort: { createdAt: -1 },
+        select: '-password -refreshToken',
+        populate: [
+            { 
+                path: 'subscription',
+                select: 'plan status currentPeriodEnd'
+            }
+        ]
+    };
+    
+    const users = await User.paginate(query, options);
+    
+    if (!users.docs || users.docs.length === 0) {
         return res.status(404).json(
             new ApiResponse(
                 404,
-                null,
+                { users: { docs: [], total: 0, pages: 0, page: 1, limit: 10 } },
                 'No users found'
             )
         );

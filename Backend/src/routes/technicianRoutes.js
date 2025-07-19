@@ -59,43 +59,49 @@ router.route('/profile')
 router.route('/availability')
     .patch(updateTechnicianAvailability);
 
+// Job Management Routes
+router.route('/bookings')
+    .get(getAssignedBookings);
+
+// {TO BE CHECKED}
+router.route('/bookings/:bookingId')
+    .get(getBookingDetails)
+    .patch(updateJobStatus);
+
+// {TO BE CHECKED}
+router.route('/bookings/:bookingId/assignment')
+    .patch(updateBookingAssignment);
+
+// Ratings and Feedback
+router.route('/ratings')
+    .get(getRatingsAndFeedback);
+
+// Job Statistics
+router.route('/stats')
+    .get(getJobStats);
+
+// Admin/Manager Routes
+
 // Get, delete specific technician (Admin/Partner only)
+router.route('/unverified')
+    .get(isAdminOrPartner, getUnverifiedTechnicians);
+
+// {TO BE CHECKED}
+router.route('/:technicianId/:partnerId')
+    .patch(isAdminOrPartner, assignTechnicianToPartner);
+
+router.route('/:technicianId/status')
+    .patch(isAdminOrPartner, changeTechnicianStatus);
+
+// Partner Dashboard
+router.route('/partner/:partnerId')
+    .get(getTechniciansByPartnerId);
+
 router.route('/:id')
     .get(isAdminOrPartner, getTechnicianById)
     .patch(isAdminOrPartner, deactivateTechnicianById)
     .delete(isAdminOrPartner, deleteTechnicianById);
 
-// Job Management Routes
-router.route('/bookings')
-    .get(verifyJWT, getAssignedBookings);
 
-router.route('/bookings/:bookingId')
-    .get(verifyJWT, getBookingDetails)
-    .patch(verifyJWT, updateJobStatus);
-
-router.route('/bookings/:bookingId/assignment')
-    .patch(verifyJWT, updateBookingAssignment);
-
-// Ratings and Feedback
-router.route('/ratings')
-    .get(verifyJWT, getRatingsAndFeedback);
-
-// Job Statistics
-router.route('/stats')
-    .get(verifyJWT, getJobStats);
-
-// Admin/Manager Routes
-router.route('/unverified')
-    .get(verifyJWT, isAdminOrPartner, getUnverifiedTechnicians);
-
-router.route('/:technicianId/assign-partner')
-    .patch(verifyJWT, isAdminOrPartner, assignTechnicianToPartner);
-
-router.route('/:technicianId/status')
-    .patch(verifyJWT, isAdminOrPartner, changeTechnicianStatus);
-
-// Partner Dashboard
-router.route('/partner/:partnerId')
-    .get(verifyJWT, getTechniciansByPartnerId);
 
 export default router;
