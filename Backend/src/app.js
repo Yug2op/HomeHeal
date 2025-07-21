@@ -34,6 +34,7 @@ import bookingRouter from "./routes/bookingRoutes.js"
 import partBookingRouter from "./routes/partBookingRoutes.js"
 import adminRouter from "./routes/adminRoutes.js"
 import technicianRouter from "./routes/technicianRoutes.js"
+import serviceRouter from "./routes/serviceRoutes.js"
 // import healthcheckRouter from "./routes/healthcheck.routes.js"
 
 // Routes declaration
@@ -41,6 +42,7 @@ app.use("/api/v1/users", userRouter)
 app.use("/api/v1/part-bookings", partBookingRouter)
 app.use("/api/v1/dealer/parts", dealerPartRouter)
 app.use("/api/v1/bookings", bookingRouter)
+app.use("/api/v1/services", serviceRouter)
 app.use("/api/v1/admin", adminRouter)
 app.use("/api/v1/technicians", technicianRouter)
 // app.use("/api/v1/healthcheck", healthcheckRouter)
