@@ -152,7 +152,8 @@ const registerTechnician = asyncHandler(async (req, res) => {
             bio,
             bankDetails: formattedBankDetails,
             documents: formattedDocuments,
-            status: 'pending_verification'
+            isActive: true, // New technicians are inactive by default
+            registration_status: 'pending' // Using the registration_status from User model
         });
 
         const createdTechnician = await Technician.findById(technician._id).select("-password -refreshToken");
@@ -568,13 +569,16 @@ const deactivateTechnicianById = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Technician not found');
     }
 
-    // Soft delete by updating status
-    technician.status = 'inactive';
+    // Deactivate the technician
     technician.isActive = false;
     await technician.save();
 
-    // Optionally, you might want to revoke tokens or perform cleanup
-    const updatedTechnician = await User.findByIdAndUpdate(id, { $set: { refreshToken: null } });
+    // Revoke tokens and perform cleanup
+    const updatedTechnician = await User.findByIdAndUpdate(id, { 
+        $set: { 
+            refreshToken: null,
+        } 
+    });
 
     return res.status(200).json(
         new ApiResponse(200, updatedTechnician , "Technician deactivated successfully")
@@ -1073,8 +1077,9 @@ const changeTechnicianStatus = asyncHandler(async (req, res) => {
     const { technicianId } = req.params;
     const { status, reason } = req.body;
 
-    if (!['pending_verification', 'active', 'on_leave', 'suspended', 'inactive'].includes(status)) {
-        throw new ApiError(400, 'Invalid status. Must be one of: pending_verification, active, on_leave, suspended, inactive');
+    const validStatuses = ['pending', 'approved', 'rejected', 'in_review'];
+    if (!validStatuses.includes(status)) {
+        throw new ApiError(400, `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
     }
 
     const technician = await Technician.findById(technicianId);
@@ -1082,18 +1087,50 @@ const changeTechnicianStatus = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Technician not found');
     }
 
-    // Store previous status for history
-    const previousStatus = technician.status;
-    technician.status = status;
+    // Store previous state for history
+    const previousState = {
+        isActive: technician.isActive,
+        isOnBreak: technician.availability?.isOnBreak || false,
+        registration_status: technician.registration_status
+    };
+
+    // Update status based on the new status
+    switch (status) {
+        case 'approved':
+            technician.isActive = true;
+            technician.registration_status = 'approved';
+            if (technician.availability) {
+                technician.availability.isOnBreak = false;
+            }
+            break;
+        case 'rejected':
+            technician.isActive = false;
+            technician.registration_status = 'rejected';
+            break;
+        case 'in_review':   
+            technician.registration_status = 'in_review';
+            break;
+        case 'suspended':
+            technician.isActive = false;
+            technician.registration_status = 'suspended';
+            break;
+    }
+
     technician.updatedBy = req.user._id;
 
     // Add to status history
     technician.statusHistory = technician.statusHistory || [];
     technician.statusHistory.push({
-        status,
+        previousState,
+        newState: {
+            isActive: technician.isActive,
+            isOnBreak: technician.availability?.isOnBreak || false,
+            registration_status: technician.registration_status
+        },
         changedBy: req.user._id,
-        reason: reason || `Status changed from ${previousStatus} to ${status}`,
-        changedAt: new Date()
+        reason: reason || `Status changed to ${status}`,
+        changedAt: new Date(),
+        status: status // Keeping this for backward compatibility
     });
 
     await technician.save();
@@ -1120,7 +1157,7 @@ const getTechniciansByPartnerId = asyncHandler(async (req, res) => {
     };
 
     // Filter by status if provided
-    if (['pending_verification', 'active', 'on_leave', 'suspended', 'inactive'].includes(status)) {
+    if (['pending', 'approved', 'rejected', 'in_review', 'suspended'].includes(status)) {
         query.status = status;
     }
 

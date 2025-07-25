@@ -186,13 +186,6 @@ const technicianSchema = new mongoose.Schema({
             trim: true
         },
     },
-
-    // System Fields
-    status: {
-        type: String,
-        enum: ['pending_verification', 'active', 'on_leave', 'suspended', 'inactive'],
-        default: 'pending_verification'
-    },
     
     // Reference to bookings assigned to this technician
     assignedBookings: [{
